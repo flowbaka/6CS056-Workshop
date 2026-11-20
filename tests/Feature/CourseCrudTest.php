@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Course;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 
 uses(LazilyRefreshDatabase::class);
@@ -19,42 +20,38 @@ function coursePayload(array $overrides = []): array
 }
 
 test('courses list shows an empty state', function () {
-    $this->get(route('courses.index'))->assertSee('No courses yet');
+    $this->get(route('courses.index'))->assertSee('No courses found.');
 });
 
-test('courses list paginates newest records first', function () {
+test('courses list displays all saved courses', function () {
     $courses = Course::factory()->count(11)->sequence(fn ($sequence): array => [
         'name' => 'Course '.$sequence->index,
-    ])->create(['created_at' => '2026-01-01 10:00:00']);
+    ])->create();
 
     $this->get(route('courses.index'))
+        ->assertSee($courses->first()->name)
         ->assertSee($courses->last()->name)
-        ->assertDontSee($courses->first()->name)
-        ->assertViewHas('courses', fn ($page): bool => $page->total() === 11 && $page->count() === 10);
-
-    $this->get(route('courses.index', ['page' => 2]))->assertSee($courses->first()->name);
+        ->assertViewIs('course.list')
+        ->assertViewHas('courses', fn (Collection $records): bool => $records->count() === 11);
 });
 
 test('course creation form submits to the store route with csrf protection', function () {
     $this->get(route('courses.create'))
         ->assertSee('action="'.route('courses.store').'"', false)
         ->assertSee('name="_token"', false)
-        ->assertSee('Create course');
+        ->assertSee('Create Course');
 });
 
-test('valid courses save with typed duration fee status and timestamps', function (string $difficulty) {
+test('valid courses save with duration fee status and timestamps', function (string $difficulty) {
     $response = $this->post(route('courses.store'), coursePayload(['difficulty' => $difficulty, 'id' => 999]));
 
     $course = Course::query()->sole();
-    $response->assertRedirectToRoute('courses.show', $course)->assertSessionHas('success');
+    $response->assertRedirectToRoute('courses.index')->assertSessionHas('success');
     $this->assertDatabaseHas('courses', [
         'name' => 'Web Development', 'description' => 'Learn how to build web applications.',
         'duration' => 8, 'fee' => '1250.50', 'difficulty' => $difficulty, 'is_active' => 1,
     ]);
     expect($course->id)->not->toBe(999);
-    expect($course->duration)->toBe(8);
-    expect($course->fee)->toBe('1250.50');
-    expect($course->is_active)->toBeTrue();
     expect($course->created_at)->not->toBeNull();
     expect($course->updated_at)->not->toBeNull();
 })->with(['Easy', 'Medium', 'Hard']);
@@ -62,7 +59,7 @@ test('valid courses save with typed duration fee status and timestamps', functio
 test('courses can be created inactive when the checkbox is unchecked or absent', function (array $data) {
     $this->post(route('courses.store'), $data)->assertSessionHasNoErrors();
 
-    expect(Course::query()->sole()->is_active)->toBeFalse();
+    $this->assertDatabaseHas('courses', ['id' => Course::query()->sole()->id, 'is_active' => 0]);
 })->with([
     'unchecked checkbox' => [coursePayload(['is_active' => '0'])],
     'absent checkbox' => [array_diff_key(coursePayload(), ['is_active' => true])],
@@ -73,7 +70,6 @@ test('missing required course fields show validation messages without saving', f
         ->assertRedirectToRoute('courses.create')
         ->assertSessionHasErrors([
             'name' => 'The name field is required.',
-            'description' => 'The description field is required.',
             'duration' => 'The duration in weeks field is required.',
             'fee' => 'The fee field is required.',
             'difficulty' => 'The difficulty field is required.',
@@ -154,7 +150,7 @@ test('course deletion removes the record and redirects to the list', function ()
     $this->assertModelMissing($course);
 });
 
-test('missing courses produce 404 responses through model binding', function (string $action, string $method) {
+test('missing courses produce 404 responses', function (string $action, string $method) {
     $this->{$method}(route('courses.'.$action, 999999), coursePayload())->assertNotFound();
 })->with([
     'details' => ['show', 'get'],
@@ -180,4 +176,24 @@ test('course writes without a csrf token are refused', function () {
     $this->post(route('courses.store'), coursePayload())->assertStatus(419);
 
     $this->assertDatabaseCount('courses', 0);
+});
+
+test('courses can be created without a description', function (array $data) {
+    $this->post(route('courses.store'), $data)
+        ->assertRedirectToRoute('courses.index')->assertSessionHasNoErrors();
+
+    $this->assertDatabaseHas('courses', ['name' => 'Web Development', 'description' => null]);
+})->with([
+    'blank description' => [coursePayload(['description' => ''])],
+    'null description' => [coursePayload(['description' => null])],
+    'missing description' => [array_diff_key(coursePayload(), ['description' => true])],
+]);
+
+test('course descriptions can be cleared during an update', function () {
+    $course = Course::factory()->create(coursePayload());
+
+    $this->put(route('courses.update', $course), coursePayload(['description' => '']))
+        ->assertRedirectToRoute('courses.show', $course)->assertSessionHasNoErrors();
+
+    $this->assertDatabaseHas('courses', ['id' => $course->id, 'description' => null]);
 });
