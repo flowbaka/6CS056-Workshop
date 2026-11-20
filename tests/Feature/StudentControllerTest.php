@@ -40,14 +40,14 @@ test('student creation form submits to the store route with csrf protection', fu
         ->assertSee('Create Student');
 });
 
-test('valid student data is saved with a birthday and timestamps', function () {
+test('valid student data is saved with a date cast and timestamps', function () {
     $response = $this->post(route('students.store'), studentPayload(['email' => 'ASHA@example.com', 'id' => 999]));
 
     $student = Student::query()->sole();
     $response->assertRedirectToRoute('students.index')->assertSessionHas('success');
     $this->assertDatabaseHas('students', ['name' => 'Asha Sharma', 'email' => 'asha@example.com', 'phone' => '+977 9800000000']);
     expect($student->id)->not->toBe(999);
-    expect($student->date_of_birth)->toBe('2000-04-12');
+    expect($student->date_of_birth->format('Y-m-d'))->toBe('2000-04-12');
     expect($student->created_at)->not->toBeNull();
     expect($student->updated_at)->not->toBeNull();
 });
@@ -167,7 +167,7 @@ test('student deletion removes the record and redirects to the list', function (
     $this->assertModelMissing($student);
 });
 
-test('missing students produce 404 responses', function (string $action, string $method) {
+test('missing students produce 404 responses through model binding', function (string $action, string $method) {
     $this->{$method}(route('students.'.$action, 999999), studentPayload())->assertNotFound();
 })->with([
     'details' => ['show', 'get'],

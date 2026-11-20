@@ -42,7 +42,7 @@ test('course creation form submits to the store route with csrf protection', fun
         ->assertSee('Create Course');
 });
 
-test('valid courses save with duration fee status and timestamps', function (string $difficulty) {
+test('valid courses save with typed duration fee status and timestamps', function (string $difficulty) {
     $response = $this->post(route('courses.store'), coursePayload(['difficulty' => $difficulty, 'id' => 999]));
 
     $course = Course::query()->sole();
@@ -52,6 +52,9 @@ test('valid courses save with duration fee status and timestamps', function (str
         'duration' => 8, 'fee' => '1250.50', 'difficulty' => $difficulty, 'is_active' => 1,
     ]);
     expect($course->id)->not->toBe(999);
+    expect($course->duration)->toBe(8);
+    expect($course->fee)->toBe('1250.50');
+    expect($course->is_active)->toBeTrue();
     expect($course->created_at)->not->toBeNull();
     expect($course->updated_at)->not->toBeNull();
 })->with(['Easy', 'Medium', 'Hard']);
@@ -59,7 +62,7 @@ test('valid courses save with duration fee status and timestamps', function (str
 test('courses can be created inactive when the checkbox is unchecked or absent', function (array $data) {
     $this->post(route('courses.store'), $data)->assertSessionHasNoErrors();
 
-    $this->assertDatabaseHas('courses', ['id' => Course::query()->sole()->id, 'is_active' => 0]);
+    expect(Course::query()->sole()->is_active)->toBeFalse();
 })->with([
     'unchecked checkbox' => [coursePayload(['is_active' => '0'])],
     'absent checkbox' => [array_diff_key(coursePayload(), ['is_active' => true])],
@@ -150,7 +153,7 @@ test('course deletion removes the record and redirects to the list', function ()
     $this->assertModelMissing($course);
 });
 
-test('missing courses produce 404 responses', function (string $action, string $method) {
+test('missing courses produce 404 responses through model binding', function (string $action, string $method) {
     $this->{$method}(route('courses.'.$action, 999999), coursePayload())->assertNotFound();
 })->with([
     'details' => ['show', 'get'],
